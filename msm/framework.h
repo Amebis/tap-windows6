@@ -16,6 +16,9 @@
 #include <WinCrypt.h>
 #include <Msi.h>
 #include <MsiQuery.h>
+#include <tlhelp32.h>
+#include <shellapi.h>
 
 #include <tchar.h>
 #include <stdio.h>
+#include <conio.h>

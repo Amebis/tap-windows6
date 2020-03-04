@@ -38,6 +38,9 @@
     <ClCompile Include="msi.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="rundll32.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="resource.rc">
