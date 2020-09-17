@@ -508,6 +508,67 @@ RemoveOurAdapters(_In_ HDEVINFO DeviceInfoSet)
 }
 
 static BOOL
+UpgradeOurAdapters(_In_ HDEVINFO DeviceInfoSet)
+{
+    BOOL Ret = TRUE;
+    DWORD LastError = ERROR_SUCCESS, Status;
+    for (DWORD EnumIndex = 0;; ++EnumIndex)
+    {
+        SP_DEVINFO_DATA DeviceInfo = { .cbSize = sizeof(SP_DEVINFO_DATA) };
+        if (!SetupDiEnumDeviceInfo(DeviceInfoSet, EnumIndex, &DeviceInfo))
+        {
+            if (GetLastError() == ERROR_NO_MORE_ITEMS)
+                break;
+            continue;
+        }
+        if (!IsOurAdapter(DeviceInfoSet, &DeviceInfo))
+            continue;
+
+        Logger(LOG_INFO, TEXT("Upgrading adapter"));
+
+        static const TCHAR HwID[] = TEXT("root\\") TEXT(PRODUCT_TAP_WIN_COMPONENT_ID) TEXT("\0");
+        if (!SetupDiSetDeviceRegistryProperty(DeviceInfoSet, &DeviceInfo, SPDRP_HARDWAREID, (const BYTE*)HwID, sizeof(HwID)))
+        {
+            LastError = LastError ? LastError : GetLastError();
+            PrintError(LOG_WARN, TEXT("Could not upgrade adapter hardware ID"));
+            Ret = FALSE;
+        }
+
+        HKEY Key = SetupDiOpenDevRegKey(DeviceInfoSet, &DeviceInfo, DICS_FLAG_GLOBAL, 0, DIREG_DRV, KEY_QUERY_VALUE | KEY_SET_VALUE);
+        if (Key != INVALID_HANDLE_VALUE)
+        {
+            const DWORD IfType = 53;
+            Status = RegSetValueEx(Key, TEXT("*IfType"), 0, REG_DWORD, (const BYTE *)&IfType, sizeof(IfType));
+            if (Status != ERROR_SUCCESS) {
+                LastError = Status;
+                SetLastError(Status);
+                PrintError(LOG_WARN, TEXT("Failed to set *IfType"));
+                Ret = FALSE;
+            }
+
+            const DWORD PhysicalMediaType = 0;
+            Status = RegSetValueEx(Key, TEXT("*PhysicalMediaType"), 0, REG_DWORD, (const BYTE *)&PhysicalMediaType, sizeof(PhysicalMediaType));
+            if (Status != ERROR_SUCCESS) {
+                LastError = Status;
+                SetLastError(Status);
+                PrintError(LOG_WARN, TEXT("Failed to set *PhysicalMediaType"));
+                Ret = FALSE;
+            }
+
+            RegCloseKey(Key);
+        }
+        else
+        {
+            LastError = LastError ? LastError : GetLastError();
+            PrintError(LOG_WARN, TEXT("Could not open device registry key"));
+            Ret = FALSE;
+        }
+    }
+    SetLastError(LastError);
+    return Ret;
+}
+
+static BOOL
 EnableOurAdapters(_In_ HDEVINFO DeviceInfoSet, _In_ SP_DEVINFO_DATA_LIST *AdaptersToEnable)
 {
     SP_PROPCHANGE_PARAMS Params = { .ClassInstallHeader = { .cbSize = sizeof(SP_CLASSINSTALL_HEADER),
@@ -550,6 +611,8 @@ BOOL InstallOrUpdate(_Inout_ BOOL *IsRebootRequired)
         if (!EnsureDriverUnloaded())
             Logger(LOG_WARN, TEXT("Unable to unload driver, which means a reboot will likely be required"));
     }
+    if (!UpgradeOurAdapters(DeviceInfoSet))
+        PrintError(LOG_WARN, TEXT("Could not upgrade adapters"));
     if (!RemoveDriver())
     {
         PrintError(LOG_ERR, TEXT("Failed to uninstall old drivers"));
